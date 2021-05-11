@@ -1,0 +1,184 @@
+kind: Template
+apiVersion: v1
+message: A new MySQL application has been created in your project
+metadata:
+  name: nrmwiki-mysql-dc
+parameters:
+  - description: The OpenShift Namespace where the ImageStream resides.
+    displayName: Namespace
+    name: IS_NAMESPACE
+    value: 245e18-dev
+  - description: The OpenShift ImageStream name.
+    displayName: Image Stream
+    name: IS_NAME
+    value: mysql
+  - description: Version of MySQL image to be used (e.g. v.3.16).
+    displayName: Version of MySQL
+    name: IS_VERSION
+    value: "5.7.22"
+  - description: 'The short-name of the Wiki Service, lower-case with hyphen.'
+    displayName: Wiki Name
+    name: WIKI
+    required: true
+    value: abc
+  - description: Maximum amount of memory the container can use.
+    displayName: Memory Limit
+    name: MEMORY_LIMIT
+    required: true
+    value: 512Mi
+  - description: Password for the MySQL connection user.
+    displayName: MySQL Connection Password
+    from: '[a-zA-Z0-9]{16}'
+    generate: expression
+    name: MYSQL_PASSWORD
+    required: true
+  - description: Password for the MySQL root user.
+    displayName: MySQL root Password
+    from: '[a-zA-Z0-9]{16}'
+    generate: expression
+    name: MYSQL_ROOT_PASSWORD
+    required: true
+  # - description: User name for the Wiki database schema.
+  #   displayName: MySQL Database schema
+  #   name: MYSQL_USER
+  #   value: '${WIKI}'
+  - description: 'Volume space available for data, e.g. 512Mi, 2Gi.'
+    displayName: Database Volume Capacity
+    name: DB_VOLUME_CAPACITY
+    required: true
+    value: 4Gi
+objects:
+  - kind: Secret
+    apiVersion: v1
+    metadata:
+      name: '${WIKI}-wiki-mysql'
+      labels:
+        app: '${WIKI}'
+        template: mysql-persistent-template
+      annotations:
+        description: Database credentials and name.
+        template.openshift.io/expose-database_name: '{.data[''database-name'']}'
+        template.openshift.io/expose-password: '{.data[''database-password'']}'
+        template.openshift.io/expose-root_password: '{.data[''database-root-password'']}'
+        template.openshift.io/expose-username: '{.data[''database-user'']}'
+    stringData:
+      database-name: '${WIKI}'
+      database-password: '${MYSQL_PASSWORD}'
+      database-root-password: '${MYSQL_ROOT_PASSWORD}'
+      database-user: '${WIKI}'
+  - kind: PersistentVolumeClaim
+    apiVersion: v1
+    metadata:
+      name: '${WIKI}-wiki-mysql'
+      labels:
+        app: '${WIKI}'
+        template: mysql-persistent-template
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: '${DB_VOLUME_CAPACITY}'
+      storageClassName: netapp-file-standard
+  - kind: DeploymentConfig
+    apiVersion: v1
+    metadata:
+      name: '${WIKI}-wiki-mysql'
+      labels:
+        app: '${WIKI}'
+        component: 'database'
+      annotations: {}
+    spec:
+      strategy:
+        type: Recreate
+        recreateParams:
+          timeoutSeconds: 600
+        resources: {}
+        activeDeadlineSeconds: 21600
+      triggers:
+        - type: ConfigChange
+        - type: ImageChange
+          imageChangeParams:
+            automatic: true
+            containerNames:
+              - '${WIKI}-wiki-mysql'
+            from:
+              kind: ImageStreamTag
+              namespace: "${IS_NAMESPACE}"
+              name: "${IS_NAME}:${IS_VERSION}"
+      replicas: 1
+      revisionHistoryLimit: 10
+      test: false
+      selector:
+        app: '${WIKI}'
+        deploymentconfig: '${WIKI}-wiki-mysql'
+      template:
+        metadata:
+          labels:
+            app: '${WIKI}'
+            deploymentconfig: '${WIKI}-wiki-mysql'
+          annotations: {}
+        spec:
+          volumes:
+            - name: mysql-data
+              persistentVolumeClaim:
+                claimName: '${WIKI}-wiki-mysql'
+          containers:
+            - name: '${WIKI}-wiki-mysql'
+              image: ' '
+              ports:
+                - containerPort: 3306
+                  protocol: TCP
+              env:
+                - name: MYSQL_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: '${WIKI}-wiki-mysql'
+                      key: database-name
+                - name: MYSQL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: '${WIKI}-wiki-mysql'
+                      key: database-password
+                - name: MYSQL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: '${WIKI}-wiki-mysql'
+                      key: database-user
+                - name: MYSQL_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: '${WIKI}-wiki-mysql'
+                      key: database-root-password
+              resources: {}
+              volumeMounts:
+                - name: mysql-data
+                  mountPath: /var/lib/mysql
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              imagePullPolicy: Always
+          restartPolicy: Always
+          terminationGracePeriodSeconds: 30
+          dnsPolicy: ClusterFirst
+          securityContext: {}
+          schedulerName: default-scheduler
+  - kind: Service
+    apiVersion: v1
+    metadata:
+      name: '${WIKI}-wiki-mysql'
+      labels:
+        app: '${WIKI}'
+      annotations: {}
+    spec:
+      ports:
+        - name: 3306-tcp
+          protocol: TCP
+          port: 3306
+          targetPort: 3306
+      selector:
+        app: '${WIKI}'
+        deploymentconfig: '${WIKI}-wiki-mysql'
+      type: ClusterIP
+      sessionAffinity: None
+    status:
+      loadBalancer: {}

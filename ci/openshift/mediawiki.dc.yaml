@@ -1,0 +1,295 @@
+---
+kind: Template
+apiVersion: v1
+message: A new MediaWiki application has been created in your project
+metadata:
+  name: nrmwiki-dc
+parameters:
+- description: The OpenShift Namespace where the ImageStream resides.
+  displayName: Namespace
+  name: IS_NAMESPACE
+  value: 245e18-dev
+- description: The OpenShift ImageStream name.
+  displayName: Image Stream
+  name: IS_NAME
+  value: mediawiki
+- description: Version of MediaWiki image to be used (e.g. v.3.16).
+  displayName: Version of MediaWiki
+  name: IS_VERSION
+  value: "1"
+- description: The short-name of the Wiki Service.
+  displayName: MediaWiki Acronym
+  name: WIKI
+  required: true
+  value: nrm
+- description: The disk space reserved for MediaWiki data.
+  displayName: MediaWiki data folder size
+  name: WIKI_DATA_FOLDER_CAPACITY
+  value: 4Gi
+- description: The account name for the default MediaWiki Administrator.
+  displayName: Administrator Account Name
+  name: MEDIAWIKI_USERNAME
+  value: admin
+- description: The descriptive name for the Wiki.
+  displayName: Wiki Display Name
+  name: MEDIAWIKI_WIKI_NAME
+  value: NRM ScrumMaster Wiki
+- description: Password for the default MediaWiki Administrator.
+  displayName: Administrator Passwords
+  from: "[a-zA-Z0-9]{16}"
+  generate: expression
+  name: MEDIAWIKI_PASSWORD
+  required: true
+- description: The email address for the default MediaWiki Administrator.
+  displayName: Administrator Email Address
+  name: MEDIAWIKI_EMAIL
+  required: true
+- description: The SMTP Host.
+  displayName: SMTP Host
+  name: MEDIAWIKI_SMTP_HOST
+  value: apps.smtp.gov.bc.ca
+- description: The SMTP Host ID.
+  displayName: SMTP Host ID
+  from: "[a-zA-Z0-9]{16}"
+  generate: expression
+  name: MEDIAWIKI_SMTP_HOST_ID
+  required: true
+- description: The STMP Port.
+  displayName: SMTP Port
+  name: MEDIAWIKI_SMTP_PORT
+  value: "25" 
+- description: The STMP Account.
+  displayName: SMTP Account
+  name: MEDIAWIKI_SMTP_USER
+  value: "Gary.T.Wong@gov.bc.ca" 
+- name: CPU_LIMIT
+  value: 500m
+- name: MEMORY_LIMIT
+  value: 512Mi
+- name: CPU_REQUEST
+  value: 50m
+- name: MEMORY_REQUEST
+  value: 200Mi
+- name: REPLICA_MIN
+  value: '1'
+- name: REPLICA_MAX
+  value: '1'
+objects:
+- kind: Secret
+  apiVersion: v1
+  metadata:
+    name: "${WIKI}-wiki-admin-cred"
+    labels:
+      app: "${WIKI}"
+    annotations:
+      description: Application Administrator credentials and name.
+      template.openshift.io/expose-admin_username: "{.data['admin-user']}"
+      template.openshift.io/expose-admin_password: "{.data['admin-password']}"
+      template.openshift.io/expose-admin_email: "{.data['admin-email']}"
+  stringData:
+    admin-user: "${MEDIAWIKI_USERNAME}"
+    admin-password: "${MEDIAWIKI_PASSWORD}"
+- kind: PersistentVolumeClaim
+  apiVersion: v1
+  metadata:
+    name: "${WIKI}-wiki-data"
+    labels:
+      app: "${WIKI}"
+  spec:
+    accessModes:
+    - ReadWriteMany
+    resources:
+      requests:
+        storage: "${WIKI_DATA_FOLDER_CAPACITY}"
+    storageClassName: netapp-file-standard
+- kind: DeploymentConfig
+  apiVersion: v1
+  metadata:
+    name: "${WIKI}-wiki"
+    generation: 1
+    labels:
+      app: "${WIKI}"
+      component: 'web'
+    annotations: {}
+  spec:
+    strategy:
+      type: Rolling
+      rollingParams:
+        updatePeriodSeconds: 1
+        intervalSeconds: 1
+        timeoutSeconds: 600
+        maxUnavailable: 25%
+        maxSurge: 25%
+      resources: {}
+      activeDeadlineSeconds: 21600
+    triggers:
+    - type: ConfigChange
+    - type: ImageChange
+      imageChangeParams:
+        automatic: true
+        containerNames:
+        - mediawiki-app
+        from:
+          kind: ImageStreamTag
+          namespace: "${IS_NAMESPACE}"
+          name: "${IS_NAME}:${IS_VERSION}"
+    replicas: "${{REPLICA_MIN}}"
+    revisionHistoryLimit: 10
+    test: false
+    selector:
+      app: "${WIKI}"
+      deploymentconfig: "${WIKI}-wiki"
+    template:
+      metadata:
+        labels:
+          app: "${WIKI}"
+          deploymentconfig: "${WIKI}-wiki"
+        annotations: {}
+      spec:
+        volumes:
+        - name: "${WIKI}-wiki-data"
+          persistentVolumeClaim:
+            claimName: "${WIKI}-wiki-data"
+        containers:
+        - name: mediawiki-app
+          image: " "
+          ports:
+          - containerPort: 8080
+            protocol: TCP
+          - containerPort: 8443
+            protocol: TCP
+          env:
+          - name: MEDIAWIKI_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: "${WIKI}-wiki-admin-cred"
+                key: admin-user
+          - name: MEDIAWIKI_WIKI_NAME
+            value: "${MEDIAWIKI_WIKI_NAME}"
+          - name: MEDIAWIKI_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "${WIKI}-wiki-admin-cred"
+                key: admin-password
+          - name: MEDIAWIKI_EMAIL
+            value: "${MEDIAWIKI_EMAIL}"
+          - name: MEDIAWIKI_HOST
+            value: "${WIKI}-wiki.apps.silver.devops.gov.bc.ca"
+          - name: MEDIAWIKI_SMTP_HOST
+            value: "${MEDIAWIKI_SMTP_HOST}"
+          - name: MEDIAWIKI_SMTP_HOST_ID
+            value: "${MEDIAWIKI_SMTP_HOST_ID}"
+          - name: MEDIAWIKI_SMTP_PORT
+            value: "${MEDIAWIKI_SMTP_PORT}"
+          - name: MEDIAWIKI_DATABASE_USER
+            valueFrom:
+              secretKeyRef:
+                name: "${WIKI}-wiki-mysql"
+                key: database-user
+          - name: MEDIAWIKI_DATABASE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: "${WIKI}-wiki-mysql"
+                key: database-password
+          - name: MEDIAWIKI_DATABASE_NAME
+            valueFrom:
+              secretKeyRef:
+                name: "${WIKI}-wiki-mysql"
+                key: database-name
+          - name: MEDIAWIKI_DATABASE_HOST
+            value: "${WIKI}-wiki-mysql"
+          - name: MEDIAWIKI_DATABASE_PORT_NUMBER
+            value: '3306'
+          - name: BITNAMI_DEBUG
+            value: 'false'
+          resources:
+            limits:
+              cpu: "${CPU_LIMIT}"
+              memory: "${MEMORY_LIMIT}"
+            requests:
+              cpu: "${CPU_REQUEST}"
+              memory: "${MEMORY_REQUEST}"
+          volumeMounts:
+          - name: "${WIKI}-wiki-data"
+            mountPath: "/bitnami/mediawiki"
+          livenessProbe:
+            httpGet:
+              path: "/"
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 60
+            timeoutSeconds: 5
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: "/"
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 10
+          terminationMessagePath: "/dev/termination-log"
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+        restartPolicy: Always
+        terminationGracePeriodSeconds: 30
+        dnsPolicy: ClusterFirst
+        securityContext: {}
+        schedulerName: default-scheduler
+- apiVersion: autoscaling/v1
+  kind: HorizontalPodAutoscaler
+  metadata:
+    name: "${WIKI}-wiki"
+    labels:
+      app: "${WIKI}"
+  spec:
+    maxReplicas: "${{REPLICA_MAX}}"
+    minReplicas: "${{REPLICA_MIN}}"
+    scaleTargetRef:
+      apiVersion: v1
+      kind: DeploymentConfig
+      name: "${WIKI}-wiki-app"
+    targetCPUUtilizationPercentage: 95
+- kind: Service
+  apiVersion: v1
+  metadata:
+    name: "${WIKI}-wiki"
+    labels:
+      app: "${WIKI}"
+    annotations:
+      description: Exposes and load balances the application pods
+  spec:
+    ports:
+    - name: web
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+    selector:
+      app: "${WIKI}"
+      deploymentconfig: "${WIKI}-wiki"
+    type: ClusterIP
+    sessionAffinity: None
+  status:
+    loadBalancer: {}
+- kind: Route
+  apiVersion: v1
+  metadata:
+    name: "${WIKI}-wiki"
+    creationTimestamp:
+    labels:
+      app: "${WIKI}"
+  spec:
+    host: "${WIKI}-wiki.apps.silver.devops.gov.bc.ca"
+    to:
+      kind: Service
+      name: "${WIKI}-wiki"
+      weight: 100
+    port:
+      targetPort: web
+    tls:
+      termination: edge
+    wildcardPolicy: None

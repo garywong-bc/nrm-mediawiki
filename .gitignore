@@ -1,2 +1,4 @@
 .env
-
+config/LocalSettings-as-generated.php
+config/LocalSettings-customized.php
+*.tar

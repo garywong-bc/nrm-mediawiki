@@ -88,7 +88,48 @@ NOTE If using RH image `registry.redhat.io/openshift4/mediawiki:v4.2`, then the 
 docker-compose needs fix from https://www.mediawiki.org/w/index.php?title=Topic:Qdndm8q8mlgvvs6j&topic_showPostId=su3oek2l90y1fx44#flow-post-su3oek2l90y1fx44
 
 ```bash
-❯ docker-compose exec wiki bash
+docker-compose exec wiki bash
 bash-4.2$ vi /home/www-data/httpd/mediawiki/mw-config/index.php
 bash-4.2$ vi /home/www-data/httpd/mediawiki/includes/NoLocalSettings.php
+```
+
+## Reconfigure
+
+```bash
+docker-compose exec mediawiki /bin/bash
+```
+
+```bash
+sed 's/#$wgUseImageMagick/$wgUseImageMagick/' /opt/bitnami/mediawiki/LocalSettings.php > \
+  /opt/bitnami/mediawiki/LocalSettings.php.changed && \
+  mv /opt/bitnami/mediawiki/LocalSettings.php.changed \
+     /opt/bitnami/mediawiki/LocalSettings.php
+
+sed 's/#$wgImageMagickConvertCommand/$wgImageMagickConvertCommand/' /opt/bitnami/mediawiki/LocalSettings.php > \
+  /opt/bitnami/mediawiki/LocalSettings.php.changed && \
+  mv /opt/bitnami/mediawiki/LocalSettings.php.changed \
+     /opt/bitnami/mediawiki/LocalSettings.php
+```
+
+```bash
+cat >> /opt/bitnami/mediawiki/LocalSettings.php << EOF
+\$wgFileExtensions = array( 'png', 'gif', 'jpg', 'jpeg', 'doc',
+    'xls', 'mpp', 'pdf', 'ppt', 'tiff', 'bmp', 'docx', 'xlsx',
+    'pptx', 'ps', 'odt', 'ods', 'odp', 'odg'
+);
+EOF
+```
+
+Or locally by editting `./docker/mediawiki/data/LocalSettings.php`
+
+## To reset local DB
+
+In running containers:
+
+```bash
+rm -rf ./docker/mariadb/data/
+```
+
+```bash
+rm -rf ./docker/mediawiki/data/
 ```

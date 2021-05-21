@@ -1,3 +1,6 @@
 .env
 config/LocalSettings*.php
 *.tar
+
+docker/mariadb/data
+docker/mediawiki/data
